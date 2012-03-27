@@ -1,8 +1,10 @@
 #include "UDPfunctions.h"
 
-void CreateSocket(SOCKET *sd, int protocol)
+
+/* creates TCP and UDP sockets */
+SOCKET CreateSocket(SOCKET *sd, int protocol)
 {
-	if(protocol == 1)
+	if(protocol == UDP)
 	{
 		if((*sd = socket(PF_INET, SOCK_DGRAM, 0)) == -1)
 		{
@@ -16,35 +18,29 @@ void CreateSocket(SOCKET *sd, int protocol)
 			fprintf(stderr, "error opening socket");
 		}
 	}
+	
+	return sd;
 }
 
 
 void StoreServerInfo(TCPinfo *TI, UDPinfo *UI, int type)
 {
-	if(type == 1)
-	{
-		memset((char *)&UI->server, 0, sizeof(UI->server));
-		UI->server.sin_family = PF_INET;
-		UI->server.sin_port = htons(UI->port);
+	memset((char *)&UI->server, 0, sizeof(UI->server));
+	UI->server.sin_family = PF_INET;
+	UI->server.sin_port = htons(UI->port);
 
-		memset((char *)&TI->server, 0, sizeof(TI->server));
-		TI->server.sin_family = AF_INET;
-		TI->server.sin_port = htons(UI->port);
-	}
-	else
+	memset((char *)&TI->server, 0, sizeof(TI->server));
+	TI->server.sin_family = AF_INET;
+	TI->server.sin_port = htons(UI->port);
+
+	if(type == TCP)
 	{
-		memset((char *)&UI->server, 0, sizeof(UI->server));
-		UI->server.sin_family = PF_INET;
-		UI->server.sin_port = htons(UI->port);
 		UI->server.sin_addr.s_addr = htonl(INADDR_ANY);
-
-		memset((char *)&TI->server, 0, sizeof(TI->server));
-		TI->server.sin_family = AF_INET;
-		TI->server.sin_port = htons(UI->port);
 		TI->server.sin_addr.s_addr = htonl(INADDR_ANY);
 	}
 }
 
+/* so when this function gets called, we get host twice? */
 void GetHost(TCPinfo *TI, UDPinfo *UI)
 {
 	if((UI->hp = gethostbyname(UI->hostname)) == NULL)
@@ -62,12 +58,9 @@ void CopyAddress(UDPinfo *UI, TCPinfo *TI)
 	memcpy((char *)&UI->server.sin_addr, UI->hp->h_addr, UI->hp->h_length);
 	memcpy((char *)&TI->server.sin_addr, TI->hp->h_addr, TI->hp->h_length);
 
-	
 	UI->client_len = sizeof(UI->client);
 	UI->server_len = sizeof(UI->server);
-
 }
-
 
 void BindSockets(UDPinfo *UI, TCPinfo *TI)
 {
@@ -93,8 +86,8 @@ int UDPread(UDPinfo *UI)
 	DWORD flags = 0;
 	int err;
 
-	memset((char*)UDPread.buf, 0, 512);
-	UDPread.len = 512;
+	memset((char*)UDPread.buf, 0, BUFSIZE);
+	UDPread.len = BUFSIZE;
 
 
 	if(WSARecvFrom(UI->sd, &UDPread, 1, NULL, &flags, NULL, NULL, &UI->overlapped, NULL) == SOCKET_ERROR)
@@ -102,14 +95,15 @@ int UDPread(UDPinfo *UI)
 		err = WSAGetLastError();
 		if(err != ERROR_IO_PENDING)
 		{
+			// error during read
 		}
 	}
+	
 	/***************************
 
-	Audo playing code goes here
+	Audio playing code goes here
 
 	****************************/
-
 
 	bytesRecv = sizeof(UDPread.buf);
 
@@ -124,8 +118,8 @@ int TCPread(TCPinfo *TI)
 	DWORD flags;
 	int err;
 
-	memset((char*)TCPread.buf, 0, 512);
-	TCPread.len = 512;
+	memset((char*)TCPread.buf, 0, BUFSIZE);
+	TCPread.len = BUFSIZE;
 
 	if(WSARecv(TI->new_sd, &TCPread, 1, NULL, &flags, &(TI->overlapped), NULL) == SOCKET_ERROR)
 	{
@@ -135,7 +129,6 @@ int TCPread(TCPinfo *TI)
 			//error during read
 		}
 	}
-
 
 	bytesToRead = atoi(TCPread.buf);
 
@@ -164,17 +157,20 @@ int UDPsend(UDPinfo *UI, FILE *fp)
 	*/
 	return 0;
 }
+
+
 int TCPsend(TCPinfo *TI, UDPinfo* UI, int filesize)
 {
 	WSABUF size;
 	int err;
 
-	size.len = 512;
-	memset((char*)size.buf, 0, 512);
+	size.len = BUFSIZE;
+	memset((char*)size.buf, 0, BUFSIZE);
 
 	sprintf(size.buf, "%d", filesize);
 
-	err = send(TI->sd, size.buf, 512, NULL);
+	err = send(TI->sd, size.buf, BUFSIZE, NULL);
 
 	return err;
 }
+

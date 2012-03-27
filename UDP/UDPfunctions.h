@@ -4,6 +4,9 @@
 #include <string.h>
 #include <time.h>
 
+#define TCP 0
+#define UDP 1
+#define BUFSIZE 512
 
 typedef struct
 {
@@ -28,7 +31,7 @@ typedef struct
 	WSAOVERLAPPED overlapped;
 }TCPinfo;
 
-void CreateSocket(SOCKET *sd, int protocol);
+SOCKET CreateSocket(SOCKET *sd, int protocol);
 void StoreServerInfo(TCPinfo *TI, UDPinfo *UI, int type);
 void GetHost(TCPinfo *TI, UDPinfo *UI);
 void CopyAddress(UDPinfo *UI, TCPinfo *TI);
