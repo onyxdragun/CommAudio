@@ -6,7 +6,24 @@
 
 #define TCP 0
 #define UDP 1
-#define BUFSIZE 512
+#define BUFSIZE 256
+#define SOUND_DATA_SIZE 211
+
+typedef struct
+{
+	char id[4];
+	DWORD size;
+	DWORD formatLength;
+	short formatTag;
+	short channels;
+	short blockAlign;
+	short bitsPerSample;
+	DWORD sampleRate;
+	DWORD avgBytesSec;
+	DWORD dataSize;
+	DWORD i;
+	char *soundBuffer;
+} wavheader;
 
 typedef struct
 {
@@ -19,6 +36,7 @@ typedef struct
 	int server_len;
 	int client_len;
 	WSAOVERLAPPED overlapped;
+	wavheader WH;
 } UDPinfo;
 
 typedef struct
@@ -31,14 +49,22 @@ typedef struct
 	WSAOVERLAPPED overlapped;
 }TCPinfo;
 
-SOCKET CreateSocket(SOCKET *sd, int protocol);
+
+
+
+void CreateSocket(SOCKET *sd, int protocol);
 void StoreServerInfo(TCPinfo *TI, UDPinfo *UI, int type);
 void GetHost(TCPinfo *TI, UDPinfo *UI);
 void CopyAddress(UDPinfo *UI, TCPinfo *TI);
 void BindSockets(UDPinfo *UI, TCPinfo *TI);
 void ListenForConnections(TCPinfo *TI, int numOfConnection);
+/*
+* not implemented properly
+*/
 int UDPread(UDPinfo *UI);
 int TCPread(TCPinfo *TI);
-int UDPsend(UDPinfo *UI, FILE *fp);
-int TCPsend(TCPinfo *TI, UDPinfo* UI, int filesize);
+int UDPsend(UDPinfo *UI);
+int TCPcontrolsend(TCPinfo *TI, UDPinfo* UI, int filesize);
 void TCPconnect(TCPinfo *TI);
+FILE *wavOpen(wavheader *WH);
+char *packetize(wavheader *WH, int *bufpos);

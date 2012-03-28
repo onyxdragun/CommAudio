@@ -2,7 +2,7 @@
 
 
 /* creates TCP and UDP sockets */
-SOCKET CreateSocket(SOCKET *sd, int protocol)
+void CreateSocket(SOCKET *sd, int protocol)
 {
 	if(protocol == UDP)
 	{
@@ -18,8 +18,6 @@ SOCKET CreateSocket(SOCKET *sd, int protocol)
 			fprintf(stderr, "error opening socket");
 		}
 	}
-	
-	return sd;
 }
 
 
@@ -99,11 +97,11 @@ int UDPread(UDPinfo *UI)
 		}
 	}
 	
-	/***************************
 
-	Audio playing code goes here
-
-	****************************/
+	/*
+	* THIS IS NOT CORRECT NEED TO FIND RIGHT PLAYSOUND
+	*/
+	PlaySound(UDPread.buf, NULL, SND_MEMORY);
 
 	bytesRecv = sizeof(UDPread.buf);
 
@@ -143,23 +141,36 @@ void TCPconnect(TCPinfo *TI)
 		exit(4);
 	}
 }
-
-int UDPsend(UDPinfo *UI, FILE *fp)
+// reads a wav file, sends packetized buffers to the server, 
+int UDPsend(UDPinfo *UI)
 {
 	WSABUF filecontents;
-	DWORD byteread;
+	DWORD bytetoSend;
 	DWORD flags;
-/*
-	while(fscanf)
+	FILE *fp;
+	int byteSent;
+	int bufpos = 0;
+	int numpackets;
+
+	fp = wavOpen(&UI->WH);
+
+	filecontents.buf = (char *) malloc (BUFSIZE);
+	filecontents.buf = UI->WH.soundBuffer;
+	filecontents.len = BUFSIZE;
+	numpackets = (UI->WH.dataSize / BUFSIZE);
+	bytetoSend = (numpackets * SOUND_DATA_SIZE)+(numpackets * 44);// do math for this ...soundbuffer/512 then add header to each of those
+
+	while(bytetoSend > byteSent)
 	{
-		sendto(UI->sd, filecontents.buf, byteread, flags, (struct sockaddr *)&UI->server, UI->server_len); 	
+		filecontents.buf = packetize(&UI->WH, &bufpos);
+		byteSent += sendto(UI->sd, filecontents.buf, BUFSIZE, flags, (struct sockaddr *)&UI->server, UI->server_len); 
+		
 	}
-	*/
 	return 0;
 }
 
 
-int TCPsend(TCPinfo *TI, UDPinfo* UI, int filesize)
+int TCPcontrolsend(TCPinfo *TI, UDPinfo* UI, int filesize)
 {
 	WSABUF size;
 	int err;
@@ -173,4 +184,97 @@ int TCPsend(TCPinfo *TI, UDPinfo* UI, int filesize)
 
 	return err;
 }
+
+
+/*
+* opens a wave file and extracts all of its data
+*/
+FILE *wavOpen(wavheader *WH)
+{
+	FILE *fp;
+	DWORD size;
+	char id[4];
+	short formatTag, channels, blockAlign, bitsPerSample; 
+	DWORD formatLength, sampleRate, avgBytesSec, dataSize, i; 
+	char *soundBuffer;
+
+
+	fp = fopen("sound.wav", "rb");
+	if(fp)
+	{
+		fread(id,sizeof(BYTE),4,fp); 
+		if (!strcmp(id,"RIFF")) 
+		{ 
+			//Windows media file
+			fread(&size,sizeof(DWORD),1,fp); //size of file
+			fread(id,sizeof(BYTE),4,fp); //reading "WAVE"
+			if(!strcmp(id, "WAVE"))
+			{
+				//.WAV file
+				fread(id, sizeof(BYTE), 4, fp); // reading "fmt " 
+				fread(&formatLength, sizeof(DWORD),1,fp); //16 bytes for file format
+				fread(&formatTag, sizeof(short), 1, fp); // 16 bits. 1 means no compression, other is diff format 
+				fread(&channels, sizeof(short),1,fp); //16 bits, number of channels - 1 mono, 2 stereo 
+				fread(&sampleRate, sizeof(DWORD), 1, fp); //16 bits for sample rate
+				fread(&avgBytesSec, sizeof(short), 1, fp); // 32 bits for average bytes per second
+				fread(&blockAlign, sizeof(short), 1, fp); //16 bits for block alignment 
+				fread(&bitsPerSample, sizeof(short), 1, fp); //16 bits for bits per sample (8 or 16 bit sound)
+				fread(id, sizeof(BYTE), 4, fp); //read in that data is next 
+				fread(&dataSize, sizeof(DWORD), 1, fp); //how many bytes of sound 
+				soundBuffer = (char *) malloc (sizeof(char) * dataSize); //set aside sound buffer space 
+				fread(soundBuffer, sizeof(BYTE), dataSize, fp); //read in all sound data
+
+			}
+			else
+			{
+				perror("not a .WAV file");
+			}
+		} 
+		else
+		{
+			perror("not a RIFF file");
+		}
+	}
+
+	WH->avgBytesSec = avgBytesSec;
+	WH->bitsPerSample = bitsPerSample;
+	WH->blockAlign = blockAlign;
+	WH->channels = channels;
+	WH->dataSize = dataSize;
+	WH->formatLength = formatLength;
+	WH->formatTag = formatTag;
+	WH->size = size;
+	WH->soundBuffer = (char *) malloc (sizeof(char) * dataSize);
+	WH->soundBuffer = soundBuffer;
+	return fp;
+}
+//takes some of the sound data and adds a header to it so that the server can play it
+char *packetize(wavheader *WH, int *bufpos)
+{
+	char *buf;
+	char *soundData;
+	int i = 0;
+	int j = 0;
+
+	buf = (char *) malloc(BUFSIZE);
+	soundData = (char *) malloc(SOUND_DATA_SIZE);
+
+
+
+	for(i = *bufpos; i < (*bufpos + SOUND_DATA_SIZE); i++)
+	{
+		soundData[j] = WH->soundBuffer[i];
+		j++;
+	}
+
+	sprintf(buf,"%s %d %s %s %d %d %d %d %d %d %d %s %s","RIFF", 
+			WH->size, "WAVE", "fmt ", WH->formatLength, WH->formatTag,
+			WH->channels, WH->sampleRate, WH->avgBytesSec, WH->blockAlign,
+			WH->bitsPerSample, 'data', soundData);
+
+	*bufpos += SOUND_DATA_SIZE;
+	return buf;
+}
+	
+
 
