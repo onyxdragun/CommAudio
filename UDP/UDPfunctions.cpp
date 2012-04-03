@@ -8,14 +8,14 @@ void CreateSocket(SOCKET *sd, int protocol)
 	{
 		if((*sd = socket(PF_INET, SOCK_DGRAM, 0)) == -1)
 		{
-			fprintf(stderr, "error opening socket");
+			fprintf(stdout, "error opening socket");
 		}
 	}
 	else
 	{
 		if((*sd = socket(AF_INET, SOCK_STREAM, 0)) == -1)
 		{
-			fprintf(stderr, "error opening socket");
+			fprintf(stdout, "error opening socket");
 		}
 	}
 }
@@ -43,10 +43,12 @@ void GetHost(TCPinfo *TI, UDPinfo *UI)
 {
 	if((UI->hp = gethostbyname(UI->hostname)) == NULL)
 	{
+		fprintf(stdout, "error in hostname");
 		exit(16);
 	}
 	if((TI->hp = gethostbyname(UI->hostname)) == NULL)
 	{
+		fprintf(stdout, "error in hostname");
 		exit(3);
 	}
 }
@@ -64,10 +66,12 @@ void BindSockets(UDPinfo *UI, TCPinfo *TI)
 {
 	if(bind(UI->sd, (struct sockaddr *)&UI->server, sizeof(UI->server)) == SOCKET_ERROR)
 	{
+		fprintf(stdout, "bind fail");
 		exit(2);
 	}
 	if(bind(TI->sd, (struct sockaddr *)&TI->server, sizeof(TI->server)) == SOCKET_ERROR)
 	{
+		fprintf(stdout, "bind fail");
 		exit(2);
 	}
 }
@@ -84,11 +88,11 @@ int UDPread(UDPinfo *UI)
 	DWORD flags = 0;
 	int err;
 
-	memset((char*)UDPread.buf, 0, BUFSIZE);
+	UDPread.buf = (char *) malloc (BUFSIZE);
 	UDPread.len = BUFSIZE;
 
 
-	if(WSARecvFrom(UI->sd, &UDPread, 1, NULL, &flags, NULL, NULL, &UI->overlapped, NULL) == SOCKET_ERROR)
+	if(recvfrom(UI->sd, UDPread.buf, BUFSIZE, flags,NULL,NULL) == SOCKET_ERROR)
 	{
 		err = WSAGetLastError();
 		if(err != ERROR_IO_PENDING)
@@ -113,13 +117,13 @@ int TCPread(TCPinfo *TI)
 {
 	WSABUF TCPread;
 	int bytesToRead;
-	DWORD flags;
+	DWORD flags= 0;
 	int err;
 
-	memset((char*)TCPread.buf, 0, BUFSIZE);
+	TCPread.buf = (char *) malloc (BUFSIZE);
 	TCPread.len = BUFSIZE;
 
-	if(WSARecv(TI->new_sd, &TCPread, 1, NULL, &flags, &(TI->overlapped), NULL) == SOCKET_ERROR)
+	if(recv(TI->new_sd, TCPread.buf,BUFSIZE, flags) == SOCKET_ERROR)
 	{
 		err = WSAGetLastError();
 		if(err != ERROR_IO_PENDING)
@@ -142,15 +146,18 @@ void TCPconnect(TCPinfo *TI)
 	}
 }
 // reads a wav file, sends packetized buffers to the server, 
-int UDPsend(UDPinfo *UI)
+int UDPsend(UDPinfo *UI, TCPinfo *TI)
 {
 	WSABUF filecontents;
 	DWORD bytetoSend;
-	DWORD flags;
+	DWORD flags = 0;
 	FILE *fp;
-	int byteSent;
+	int byteSent = 0;
 	int bufpos = 0;
 	int numpackets;
+
+
+	memset((void *)&UI->WH, 0, sizeof(wavheader));
 
 	fp = wavOpen(&UI->WH);
 
@@ -159,6 +166,8 @@ int UDPsend(UDPinfo *UI)
 	filecontents.len = BUFSIZE;
 	numpackets = (UI->WH.dataSize / BUFSIZE);
 	bytetoSend = (numpackets * SOUND_DATA_SIZE)+(numpackets * 44);// do math for this ...soundbuffer/512 then add header to each of those
+
+	TCPcontrolsend(TI, UI, UI->WH.size);
 
 	while(bytetoSend > byteSent)
 	{
@@ -176,7 +185,7 @@ int TCPcontrolsend(TCPinfo *TI, UDPinfo* UI, int filesize)
 	int err;
 
 	size.len = BUFSIZE;
-	memset((char*)size.buf, 0, BUFSIZE);
+	size.buf = (char *) malloc (BUFSIZE);
 
 	sprintf(size.buf, "%d", filesize);
 
@@ -193,47 +202,74 @@ FILE *wavOpen(wavheader *WH)
 {
 	FILE *fp;
 	DWORD size;
-	char id[4];
-	short formatTag, channels, blockAlign, bitsPerSample; 
-	DWORD formatLength, sampleRate, avgBytesSec, dataSize, i; 
+	BYTE id[4];
+	char *id2;
+	int succ;
+	short formatTag = 0;
+	short channels = 0;
+	short blockAlign;
+	short bitsPerSample = 0 ; 
+	DWORD formatLength = 0;
+	DWORD dataSize = 0;
+	DWORD i  = 0;
+	DWORD sampleRate = 0;
+	DWORD avgBytesSec = 0;
 	char *soundBuffer;
 
-
+	id2 = (char *) malloc (4);
 	fp = fopen("sound.wav", "rb");
 	if(fp)
 	{
-		fread(id,sizeof(BYTE),4,fp); 
-		if (!strcmp(id,"RIFF")) 
-		{ 
-			//Windows media file
-			fread(&size,sizeof(DWORD),1,fp); //size of file
-			fread(id,sizeof(BYTE),4,fp); //reading "WAVE"
-			if(!strcmp(id, "WAVE"))
-			{
-				//.WAV file
-				fread(id, sizeof(BYTE), 4, fp); // reading "fmt " 
-				fread(&formatLength, sizeof(DWORD),1,fp); //16 bytes for file format
-				fread(&formatTag, sizeof(short), 1, fp); // 16 bits. 1 means no compression, other is diff format 
-				fread(&channels, sizeof(short),1,fp); //16 bits, number of channels - 1 mono, 2 stereo 
-				fread(&sampleRate, sizeof(DWORD), 1, fp); //16 bits for sample rate
-				fread(&avgBytesSec, sizeof(short), 1, fp); // 32 bits for average bytes per second
-				fread(&blockAlign, sizeof(short), 1, fp); //16 bits for block alignment 
-				fread(&bitsPerSample, sizeof(short), 1, fp); //16 bits for bits per sample (8 or 16 bit sound)
-				fread(id, sizeof(BYTE), 4, fp); //read in that data is next 
-				fread(&dataSize, sizeof(DWORD), 1, fp); //how many bytes of sound 
-				soundBuffer = (char *) malloc (sizeof(char) * dataSize); //set aside sound buffer space 
-				fread(soundBuffer, sizeof(BYTE), dataSize, fp); //read in all sound data
+		fread(id2,sizeof(BYTE),4,fp);
+		if(id2[0] == 'R')
+			if(id2[1] == 'I')
+				if(id2[2] == 'F')
+					if(id2[3] == 'F')
+					{ 
+						//Windows media file
+						fread(&size,sizeof(DWORD),1,fp); //size of file
+						fread(id2,sizeof(BYTE),4,fp); //reading "WAVE"
+						if(id2[0] == 'W')
+							if(id2[1] == 'A')
+								if(id2[2] == 'V')
+									if(id2[3] == 'E')
+									{ 
+										//.WAV file
+										fread(id2, sizeof(BYTE), 4, fp); // reading "fmt " 
+										if(id2[0] == 'f')
+											if(id2[1] == 'm')
+												if(id2[2] == 't')
+													if(id2[3] == ' ')
+													{ 
+														fread(&formatLength, sizeof(DWORD),1,fp); //16 bytes for file format
+														fread(&formatTag, sizeof(short), 1, fp); // 16 bits. 1 means no compression, other is diff format 
+														fread(&channels, sizeof(short),1,fp); //16 bits, number of channels - 1 mono, 2 stereo 
+														fread(&sampleRate, sizeof(DWORD), 1, fp); //16 bits for sample rate
+														fread(&avgBytesSec, sizeof(DWORD), 1, fp); // 32 bits for average bytes per second
+														fread(&blockAlign, sizeof(short), 1, fp); //16 bits for block alignment 
+														fread(&bitsPerSample, sizeof(short), 1, fp); //16 bits for bits per sample (8 or 16 bit sound)
+														fread(id2, sizeof(BYTE), 4, fp); //read in that data is next 
+														if(id2[0] == 'd')
+															if(id2[1] == 'a')
+																if(id2[2] == 't')
+																	if(id2[3] == 'a')
+																	{ 
+																		fread(&dataSize, sizeof(DWORD), 1, fp); //how many bytes of sound 
+																		soundBuffer = (char *) malloc (sizeof(char) * dataSize); //set aside sound buffer space 
+																		fread(soundBuffer, sizeof(BYTE), dataSize, fp); //read in all sound data
+																	}
+													}
 
-			}
-			else
-			{
-				perror("not a .WAV file");
-			}
-		} 
-		else
-		{
-			perror("not a RIFF file");
-		}
+									}
+									else
+									{
+										perror("not a .WAV file");
+									}
+					} 
+					else
+					{
+						perror("not a RIFF file");
+					}
 	}
 
 	WH->avgBytesSec = avgBytesSec;
@@ -267,10 +303,10 @@ char *packetize(wavheader *WH, int *bufpos)
 		j++;
 	}
 
-	sprintf(buf,"%s %d %s %s %d %d %d %d %d %d %d %s %s","RIFF", 
+	sprintf(buf,"%s%d%s%s%d%d%d%d%d%d%d%s%s","RIFF", 
 			WH->size, "WAVE", "fmt ", WH->formatLength, WH->formatTag,
 			WH->channels, WH->sampleRate, WH->avgBytesSec, WH->blockAlign,
-			WH->bitsPerSample, 'data', soundData);
+			WH->bitsPerSample, "data", soundData);
 
 	*bufpos += SOUND_DATA_SIZE;
 	return buf;
@@ -278,3 +314,12 @@ char *packetize(wavheader *WH, int *bufpos)
 	
 
 
+void TCPaccept(TCPinfo *TI)
+{
+	if((TI->new_sd = accept (TI->sd, NULL, NULL)) == INVALID_SOCKET)
+	{
+		fprintf(stdout, "accept failed");
+		exit(3);
+	}
+	fprintf(stdout, "connected");
+}

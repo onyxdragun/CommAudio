@@ -11,7 +11,7 @@
 
 typedef struct
 {
-	char id[4];
+	char *id[4];
 	DWORD size;
 	DWORD formatLength;
 	short formatTag;
@@ -63,8 +63,9 @@ void ListenForConnections(TCPinfo *TI, int numOfConnection);
 */
 int UDPread(UDPinfo *UI);
 int TCPread(TCPinfo *TI);
-int UDPsend(UDPinfo *UI);
+int UDPsend(UDPinfo *UI, TCPinfo *TI);
 int TCPcontrolsend(TCPinfo *TI, UDPinfo* UI, int filesize);
 void TCPconnect(TCPinfo *TI);
 FILE *wavOpen(wavheader *WH);
 char *packetize(wavheader *WH, int *bufpos);
+void TCPaccept(TCPinfo *TI);
